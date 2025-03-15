@@ -1,7 +1,7 @@
-FROM rust:1.71-alpine as builder
+FROM rust:1-alpine3.20 AS builder
 
-# Install build dependencies
-RUN apk add --no-cache musl-dev openssl-dev pkgconfig
+# Install build dependencies - add openssl-libs-static for static linking
+RUN apk add --no-cache musl-dev openssl-dev pkgconfig openssl-libs-static
 
 # Create a new empty project
 WORKDIR /app
@@ -27,6 +27,9 @@ reqwest = { version = "0.11", features = ["json"] }
 base64 = "0.21"
 tokio = { version = "1.27", features = ["full"] }
 anyhow = "1.0"
+actix-web-prom = "0.6"
+futures = "0.3"
+num_cpus = "1.15"
 
 [profile.release]
 opt-level = 3
@@ -41,13 +44,13 @@ RUN cargo build --release
 
 # Remove the dummy source code and copy the real source
 RUN rm src/*.rs
-COPY ./src ./src/
+COPY ./main.rs ./src/main.rs
 
 # Build the application
 RUN touch src/main.rs && cargo build --release
 
 # Create a minimal runtime image
-FROM alpine:3.18
+FROM alpine:3.20
 
 # Install SSL certificates
 RUN apk add --no-cache ca-certificates
@@ -60,7 +63,15 @@ COPY --from=builder /app/cert-webhook/target/release/cert-webhook /app/cert-webh
 # Set executable permissions
 RUN chmod +x /app/cert-webhook
 
+# Create a non-root user to run the application
+RUN addgroup -S webhook && adduser -S webhook -G webhook
+USER webhook
+
 EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:8080/health || exit 1
 
 # Run the binary
 CMD ["/app/cert-webhook"]
