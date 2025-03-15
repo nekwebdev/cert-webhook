@@ -1,0 +1,27 @@
+[package]
+name = "cert-webhook"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.10"
+kube = { version = "0.84", features = ["runtime", "derive"] }
+k8s-openapi = { version = "0.18", features = ["v1_26"] }
+reqwest = { version = "0.11", features = ["json"] }
+base64 = "0.21"
+tokio = { version = "1.27", features = ["full"] }
+anyhow = "1.0"
+actix-web-prom = "0.6"
+futures = "0.3"
+num_cpus = "1.15"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true 

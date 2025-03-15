@@ -4,15 +4,15 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'main.rs'
+      - 'src/main.rs'
+      - 'Cargo.toml'
       - 'Dockerfile'
       - '.github/workflows/docker-build.yml'
-      - 'VERSION'
   workflow_dispatch:  # Allows manual triggering
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/cert-webhook
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
@@ -20,6 +20,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      attestations: write
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -33,37 +35,28 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GH_PAT }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get version
-        id: get_version
-        run: |
-          # Create VERSION file with 0.0.1 if it doesn't exist
-          if [ ! -f VERSION ]; then
-            echo "0.0.1" > VERSION
-            echo "Created VERSION file with default version 0.0.1"
-          fi
-          
-          # Read version from file
-          VERSION=$(cat VERSION)
-          
-          # Add git SHA short hash for traceability
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "sha_short=${SHA_SHORT}" >> $GITHUB_OUTPUT
-          echo "version_sha=${VERSION}-${SHA_SHORT}" >> $GITHUB_OUTPUT
-          
-          echo "Building version: ${VERSION}-${SHA_SHORT}"
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
       - name: Build and push Docker image
+        id: push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.version_sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max 
+          cache-to: type=gha,mode=max
+      
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
