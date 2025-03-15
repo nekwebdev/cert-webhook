@@ -3,6 +3,8 @@ name: Build and Push Docker Image
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'  # Also trigger on version tags
     paths:
       - 'src/main.rs'
       - 'Cargo.toml'
@@ -26,6 +28,25 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tags
+
+      - name: Check for tag on current commit
+        id: check_tag
+        run: |
+          # Get current commit SHA
+          CURRENT_SHA=$(git rev-parse HEAD)
+          # Check if current commit has a tag
+          TAG=$(git tag --points-at $CURRENT_SHA | grep '^v' | head -n 1 || true)
+          
+          if [ -n "$TAG" ]; then
+            echo "has_tag=true" >> $GITHUB_OUTPUT
+            echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+            echo "Found tag $TAG on current commit"
+          else
+            echo "has_tag=false" >> $GITHUB_OUTPUT
+            echo "No tag found on current commit"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -42,6 +63,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Version tag only for tagged commits
+            type=raw,value=${{ steps.check_tag.outputs.version }},enable=${{ steps.check_tag.outputs.has_tag == 'true' }}
+            # Latest tag only for tagged commits
+            type=raw,value=latest,enable=${{ steps.check_tag.outputs.has_tag == 'true' }}
+            # Always add short SHA for traceability
+            type=sha,format=short
 
       - name: Build and push Docker image
         id: push
